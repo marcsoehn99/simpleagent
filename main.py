@@ -18,6 +18,7 @@ agent = Agent(
     name="Hello world",
     instructions="You are a helpful agent.",
     tools=[get_weather],
+    model="gpt-5.2"
 )
 
 
