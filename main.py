@@ -41,6 +41,10 @@ openai_ef = embedding_functions.OpenAIEmbeddingFunction(
 prop_collection = client_db.get_collection(name="propositions", embedding_function=openai_ef)
 chunk_collection = client_db.get_collection(name="chunks", embedding_function=openai_ef)
 
+
+
+
+
 @function_tool
 def durchsuche_dokumente(user_frage: str) -> str:
     """Nutze dieses Tool, um interne Dokumente zu durchsuchen. Gibt Text mit Quellenangaben zurück."""
@@ -56,29 +60,35 @@ def durchsuche_dokumente(user_frage: str) -> str:
     suchbegriffe.append(user_frage)
     print(f"   [Suche nach (inkl. Original): {suchbegriffe}]")
     
-    # SCHRITT 1: Suche in den atomaren Propositionen (Laser-Präzision)
-    prop_ergebnisse = prop_collection.query(
+    # SCHRITT 1: Direkt in der Chunk-Collection suchen
+    chunk_ergebnisse = chunk_collection.query(
         query_texts=suchbegriffe,
-        n_results=3 # Wir holen die 3 besten Fakten pro Suchbegriff
+        n_results=3
     )
-    
-    # SCHRITT 2: Chunk-IDs sammeln und deduplizieren
-    gefundene_chunk_ids = set()
-    for metas in prop_ergebnisse["metadatas"]:
-        for meta in metas:
-            if meta and "chunk_id" in meta:
-                gefundene_chunk_ids.add(meta["chunk_id"])
-                
-    if not gefundene_chunk_ids:
-        return "Keine relevanten Informationen gefunden."
-        
-    print(f"   [Small-to-Big] Lade volle Kontexte für Chunks: {list(gefundene_chunk_ids)}")
 
-    # SCHRITT 3: Vollständigen Kontext aus der Chunk-Collection holen
-    chunk_ergebnisse = chunk_collection.get(
-        ids=list(gefundene_chunk_ids)
-    )
-    
+    # SCHRITT 2: Ergebnisse deduplizieren (mehrere Queries können gleiche Chunks finden)
+    gesehen = set()
+    deduplizierte_docs = []
+    deduplizierte_metas = []
+    for docs, metas in zip(chunk_ergebnisse["documents"], chunk_ergebnisse["metadatas"]):
+        for doc, meta in zip(docs, metas):
+            chunk_key = doc[:100]  # Ersten 100 Zeichen als Key
+            if chunk_key not in gesehen:
+                gesehen.add(chunk_key)
+                deduplizierte_docs.append(doc)
+                deduplizierte_metas.append(meta)
+
+    if not deduplizierte_docs:
+        return "Keine relevanten Informationen gefunden."
+
+    print(f"   [{len(deduplizierte_docs)} unique Chunks gefunden]")
+
+    # Ergebnisse für Weiterverarbeitung vorbereiten
+    chunk_ergebnisse = {
+        "documents": deduplizierte_docs,
+        "metadatas": deduplizierte_metas
+    }
+
     # SCHRITT 4: Für den LLM aufbereiten
     kontext_mit_quellen = []
     for i, doc_text in enumerate(chunk_ergebnisse["documents"]):
@@ -133,7 +143,18 @@ async def main():
     # Teste es mit einer komplexeren Frage
     #frage = "Gibt es Dokumente von der Zimmerei Masch und was wird dort angeboten?"
     #frage = "wer hat das zwischenzeugnis für marc söhn erstellt?"
-    frage = "auf welches konto im skr04 werden fremdleistungen gebucht?"
+    #frage = "auf welches konto im skr04 werden fremdleistungen gebucht?"
+    frage = "welches konto benutze ich um kfz kosten zu buchen?"
+
+
+
+
+
+
+
+
+
+
 
 
     print(f"🗣️ User: {frage}")
@@ -145,8 +166,13 @@ async def main():
     print("***********************************************************")
     print("***********************************************************")
     print("***********************************************************")
-    print(f"Entscheidung: {result.final_output.decision}")
-    print(f"Antwort: {result.final_output.gepruefte_antwort}")
+    output = result.final_output
+    if isinstance(output, CriticErgebnis):
+        print(f"Entscheidung: {output.decision}")
+        print(f"Antwort: {output.gepruefte_antwort}")
+    elif isinstance(output, ResearcherErgebnis):
+        print(f"Confidence: {output.confidence}")
+        print(f"Antwort: {output.generierte_antwort}")
 
 if __name__ == "__main__":
     asyncio.run(main())
