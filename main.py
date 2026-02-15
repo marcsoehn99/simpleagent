@@ -38,15 +38,14 @@ openai_ef = embedding_functions.OpenAIEmbeddingFunction(
     api_key=api_key,
     model_name="text-embedding-3-small"
 )
-collection = client_db.get_collection(name="dokumente", embedding_function=openai_ef)
-
+prop_collection = client_db.get_collection(name="propositions", embedding_function=openai_ef)
+chunk_collection = client_db.get_collection(name="chunks", embedding_function=openai_ef)
 
 @function_tool
 def durchsuche_dokumente(user_frage: str) -> str:
     """Nutze dieses Tool, um interne Dokumente zu durchsuchen. Gibt Text mit Quellenangaben zurück."""
     print(f"   [Multi-Query Engine startet für: '{user_frage}']")
     
-    # Schritt A: Aus einer Frage drei Suchbegriffe machen
     prompt = f"Generiere 3 kurze, unterschiedliche Suchbegriffe in Deutsch für eine Vektordatenbank, um diese Frage zu beantworten: '{user_frage}'. Gib nur die Begriffe kommasepariert aus."
     response = client_openai.chat.completions.create(
         model="gpt-4o-mini",
@@ -57,28 +56,39 @@ def durchsuche_dokumente(user_frage: str) -> str:
     suchbegriffe.append(user_frage)
     print(f"   [Suche nach (inkl. Original): {suchbegriffe}]")
     
-    # Schritt B: Alle Begriffe gleichzeitig an ChromaDB schicken
-    ergebnisse = collection.query(
+    # SCHRITT 1: Suche in den atomaren Propositionen (Laser-Präzision)
+    prop_ergebnisse = prop_collection.query(
         query_texts=suchbegriffe,
-        n_results=2
+        n_results=3 # Wir holen die 3 besten Fakten pro Suchbegriff
     )
     
-    kontext_mit_quellen = []
-    
-    # Wir iterieren über die Dokumente UND deren Metadaten
-    for i in range(len(ergebnisse["documents"])):
-        for j in range(len(ergebnisse["documents"][i])):
-            text = ergebnisse["documents"][i][j]
-            quelle = ergebnisse["metadatas"][i][j]["filename"] # Hier holen wir den Dateinamen
-            
-            # Wir formatieren den Schnipsel so, dass der Agent die Quelle sieht
-            eintrag = f"[QUELLE: {quelle}]\nINHALT: {text}"
-            
-            if eintrag not in kontext_mit_quellen:
-                kontext_mit_quellen.append(eintrag)
-    
-    if not kontext_mit_quellen:
+    # SCHRITT 2: Chunk-IDs sammeln und deduplizieren
+    gefundene_chunk_ids = set()
+    for metas in prop_ergebnisse["metadatas"]:
+        for meta in metas:
+            if meta and "chunk_id" in meta:
+                gefundene_chunk_ids.add(meta["chunk_id"])
+                
+    if not gefundene_chunk_ids:
         return "Keine relevanten Informationen gefunden."
+        
+    print(f"   [Small-to-Big] Lade volle Kontexte für Chunks: {list(gefundene_chunk_ids)}")
+
+    # SCHRITT 3: Vollständigen Kontext aus der Chunk-Collection holen
+    chunk_ergebnisse = chunk_collection.get(
+        ids=list(gefundene_chunk_ids)
+    )
+    
+    # SCHRITT 4: Für den LLM aufbereiten
+    kontext_mit_quellen = []
+    for i, doc_text in enumerate(chunk_ergebnisse["documents"]):
+        meta = chunk_ergebnisse["metadatas"][i]
+        quelle = meta.get("doc_id", "Unbekannt")
+        titel = meta.get("title", "")
+        seiten = meta.get("source_pages", "")
+        
+        eintrag = f"[QUELLE: {quelle} | ABSCHNITT: {titel} | SEITE(N): {seiten}]\nINHALT:\n{doc_text}"
+        kontext_mit_quellen.append(eintrag)
         
     return "\n\n---\n\n".join(kontext_mit_quellen)
 

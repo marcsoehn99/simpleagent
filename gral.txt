@@ -1,8 +1,0 @@
-Was ist für dein CSA-Projekt am vielversprechendsten?
-Für die Beantwortung von 160 komplexen Compliance-Fragen halte ich eine Kombination für den "Heiligen Gral":
-
-Agent A (Der Researcher): Sucht die Fakten aus den Verträgen.
-
-Agent B (Der Critic): Hinterfragt: "Ist diese Fundstelle wirklich die aktuellste? Widerspricht das nicht dem Hauptvertrag?"
-
-Agent C (Der Formulierer/Finalizer): Fasst das Ergebnis zusammen und prüft, ob die Antwort genau die CSA-Anforderung erfüllt.
