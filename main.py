@@ -68,7 +68,7 @@ agent = Agent(
         "WICHTIG: Gib am Ende deiner Antwort oder direkt im Satz immer die Quelle an (z.B. 'Laut Dokument [Dateiname]'). "
         "Wenn du Informationen aus verschiedenen Quellen kombinierst, nenne alle beteiligten Dateinamen."
     ),
-    tools=[durchsuche_dokumente],
+    tools=[durchsuche_dokumente]
 )
 
 async def main():
