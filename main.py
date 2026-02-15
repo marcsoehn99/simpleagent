@@ -3,7 +3,7 @@ import asyncio
 from dotenv import load_dotenv
 import chromadb
 import chromadb.utils.embedding_functions as embedding_functions
-from openai import OpenAI # Wir brauchen den Standard-Client für die Query-Generierung
+from openai import OpenAI
 from pydantic import BaseModel
 from typing import Literal
 
@@ -26,15 +26,7 @@ class CriticErgebnis(BaseModel):
     verwendete_quellen: list[str]
     decision: Literal["bestaetigt", "korrigiert"]
     confidence: float
-
-
-
-
-
-
-
-
-
+    gepruefte_antwort: str
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -101,14 +93,15 @@ critic_agent = Agent(
         "2. Prüfe, ob die generierte Antwort zu 100% durch diese spezifischen Quellen belegt ist. "
         "3. Wenn auch nur ein Detail der Antwort nicht in den Quellen steht, MUSST du 'korrigiert' wählen und den Fehler im reasoning benennen. "
         "4. Wenn alles exakt belegt ist, wähle 'bestaetigt'. "
+        "5. BEFÜLLUNG DES FELDES 'gepruefte_antwort': "
+        "   - Wenn decision='bestaetigt': Kopiere die Antwort des Researchers EXAKT in dieses Feld. "
+        "   - Wenn decision='korrigiert': Schreibe in dieses Feld eine eigene, korrekte Antwort, die NUR auf den Fakten der Quellen basiert. "
         "Nutze niemals externes Wissen!"
     ),
     output_type=CriticErgebnis
 )
 
 
-
-# 3. Agenten-Konfiguration
 researcher_agent = Agent(
     name="csa_researcher",
     instructions=(
@@ -118,11 +111,12 @@ researcher_agent = Agent(
         "2. Beantworte die Frage AUSSCHLIESSLICH basierend auf den gefundenen Texten. "
         "3. Erfinde niemals eigenes Wissen. "
         "4. Bereite die gefundenen Quellen und deine Antwort präzise für den nachfolgenden Auditor vor."
+        "5. Übergebe nach den Schritten 1-4 an den csa_auditor um die finale Antwort zu erhalten."
     ),
     tools=[durchsuche_dokumente],
     output_type=ResearcherErgebnis,
     handoff_description="Nutze dies, sobald du alle Fakten gefunden und deine Antwort formuliert hast, um sie zur strengen Prüfung an den Auditor zu übergeben.",
-    handoffs=[critic_agent] # Hier verknüpfen wir die beiden!
+    handoffs=[critic_agent]
 )
 
 async def main():
@@ -137,6 +131,12 @@ async def main():
     
     print("\n✅ Finale Antwort:")
     print(result.final_output)
+    print("***********************************************************")
+    print("***********************************************************")
+    print("***********************************************************")
+    print("***********************************************************")
+    print(f"Entscheidung: {result.final_output.decision}")
+    print(f"Antwort: {result.final_output.gepruefte_antwort}")
 
 if __name__ == "__main__":
     asyncio.run(main())
