@@ -4,8 +4,37 @@ from dotenv import load_dotenv
 import chromadb
 import chromadb.utils.embedding_functions as embedding_functions
 from openai import OpenAI # Wir brauchen den Standard-Client für die Query-Generierung
+from pydantic import BaseModel
+from typing import Literal
 
 from agents import Agent, Runner, function_tool
+
+
+class Quelle(BaseModel):
+    datei: str
+    seite: int
+    absatz: str
+
+class ResearcherErgebnis(BaseModel):
+    userprompt: str
+    generierte_antwort: str
+    citations: list[Quelle]
+    confidence: float
+
+class Critic(BaseModel):
+    reasoning: str
+    verwendete_quellen: list[str]
+    decision: Literal["bestaetigt", "korrigiert"]
+    confidence: float
+
+
+
+
+
+
+
+
+
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -18,6 +47,7 @@ openai_ef = embedding_functions.OpenAIEmbeddingFunction(
     model_name="text-embedding-3-small"
 )
 collection = client_db.get_collection(name="dokumente", embedding_function=openai_ef)
+
 
 @function_tool
 def durchsuche_dokumente(user_frage: str) -> str:
@@ -60,15 +90,39 @@ def durchsuche_dokumente(user_frage: str) -> str:
         
     return "\n\n---\n\n".join(kontext_mit_quellen)
 
-# 3. Agenten-Konfiguration
-agent = Agent(
-    name="Profi-RAG-Assistent",
+
+critic_agent = Agent(
+    name="CSA-Auditor",
     instructions=(
-        "Du bist ein präziser Assistent. Beantworte Fragen nur basierend auf dem gefundenen Kontext. "
-        "WICHTIG: Gib am Ende deiner Antwort oder direkt im Satz immer die Quelle an (z.B. 'Laut Dokument [Dateiname]'). "
-        "Wenn du Informationen aus verschiedenen Quellen kombinierst, nenne alle beteiligten Dateinamen."
+        "Du bist ein extrem strenger Auditor für Cloud Security. "
+        "Du erhältst eine vorgeschlagene Antwort und die dazugehörigen Quellen. "
+        "PRÜFAUFTRAG: "
+        "1. Lies die Quellen aufmerksam durch. "
+        "2. Prüfe, ob die generierte Antwort zu 100% durch diese spezifischen Quellen belegt ist. "
+        "3. Wenn auch nur ein Detail der Antwort nicht in den Quellen steht, MUSST du 'korrigiert' wählen und den Fehler im reasoning benennen. "
+        "4. Wenn alles exakt belegt ist, wähle 'bestaetigt'. "
+        "Nutze niemals externes Wissen!"
     ),
-    tools=[durchsuche_dokumente]
+    output_type=CriticErgebnis
+)
+
+
+
+# 3. Agenten-Konfiguration
+researcher_agent = Agent(
+    name="CSA-Researcher",
+    instructions=(
+        "Du bist ein technischer Researcher für Cloud Security Alliance (CSA) Compliance. "
+        "Deine einzige Aufgabe ist es, Fakten zu einer spezifischen CSA-Anforderung zu finden. "
+        "1. Nutze IMMER dein Tool 'durchsuche_dokumente'. "
+        "2. Beantworte die Frage AUSSCHLIESSLICH basierend auf den gefundenen Texten. "
+        "3. Erfinde niemals eigenes Wissen. "
+        "4. Bereite die gefundenen Quellen und deine Antwort präzise für den nachfolgenden Auditor vor."
+    ),
+    tools=[durchsuche_dokumente],
+    output_type=ResearcherErgebnis,
+    handoff_description="Nutze dies, sobald du alle Fakten gefunden und deine Antwort formuliert hast, um sie zur strengen Prüfung an den Auditor zu übergeben.",
+    handoffs=[critic_agent] # Hier verknüpfen wir die beiden!
 )
 
 async def main():
@@ -79,7 +133,7 @@ async def main():
 
 
     print(f"🗣️ User: {frage}")
-    result = await Runner.run(agent, input=frage)
+    result = await Runner.run(researcher_agent, input=frage)
     
     print("\n✅ Finale Antwort:")
     print(result.final_output)
