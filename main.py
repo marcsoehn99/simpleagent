@@ -21,7 +21,7 @@ class ResearcherErgebnis(BaseModel):
     citations: list[Quelle]
     confidence: float
 
-class Critic(BaseModel):
+class CriticErgebnis(BaseModel):
     reasoning: str
     verwendete_quellen: list[str]
     decision: Literal["bestaetigt", "korrigiert"]
@@ -92,7 +92,7 @@ def durchsuche_dokumente(user_frage: str) -> str:
 
 
 critic_agent = Agent(
-    name="CSA-Auditor",
+    name="csa_auditor",
     instructions=(
         "Du bist ein extrem strenger Auditor für Cloud Security. "
         "Du erhältst eine vorgeschlagene Antwort und die dazugehörigen Quellen. "
@@ -110,7 +110,7 @@ critic_agent = Agent(
 
 # 3. Agenten-Konfiguration
 researcher_agent = Agent(
-    name="CSA-Researcher",
+    name="csa_researcher",
     instructions=(
         "Du bist ein technischer Researcher für Cloud Security Alliance (CSA) Compliance. "
         "Deine einzige Aufgabe ist es, Fakten zu einer spezifischen CSA-Anforderung zu finden. "
